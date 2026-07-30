@@ -62,6 +62,15 @@ class SteamHapticsUI(tk.Tk):
         self.geometry("640x680")
         self.minsize(580, 560)
 
+        # set application logo
+        icon_path = os.path.join(os.path.dirname(__file__), "SteamHapticsLogo.png")
+        if os.path.exists(icon_path):
+            try:
+                self.icon = tk.PhotoImage(file=icon_path)
+                self.iconphoto(True, self.icon)
+            except Exception:
+                pass
+
         self.process = None
         self.reader_thread = None
         self.restart_requested = False

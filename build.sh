@@ -44,6 +44,7 @@ pyinstaller \
     --onefile \
     --windowed \
     --name "$APP_NAME" \
+    --add-data "SteamHapticsLogo.png:." \
     "$ENTRYPOINT"
 
 if command -v strip >/dev/null; then
