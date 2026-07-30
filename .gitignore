@@ -5,3 +5,6 @@ venv/
 build/
 dist/
 *.spec
+steam-haptics-singer-v1113
+*.mid
+steam-haptics-ui

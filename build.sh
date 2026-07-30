@@ -1,27 +1,53 @@
 #!/usr/bin/env bash
-# build.sh - packages steam_haptics_ui.py into a single standalone binary
 #
-# Run this on your own Linux machine (not in a sandbox), in the same
-# folder as steam_haptics_ui.py. Needs python3, pip, and tkinter.
+# build.sh
+#
+# Builds steam_haptics_ui.py into a standalone binary.
+# Uses a local Python virtual environment.
 
-set -e
+set -euo pipefail
 
-if ! python3 -c "import tkinter" 2>/dev/null; then
-    echo "tkinter isn't installed. On Debian/Ubuntu:"
-    echo "  sudo apt install python3-tk"
-    exit 1
+APP_NAME="steam-haptics-ui"
+ENTRYPOINT="steam_haptics_ui.py"
+VENV=".venv"
+
+echo "==> Cleaning previous builds..."
+rm -rf build dist __pycache__
+rm -f "${APP_NAME}.spec"
+
+if [[ ! -d "$VENV" ]]; then
+    echo "==> Creating virtual environment..."
+    python -m venv "$VENV"
 fi
 
-if ! python3 -c "import PyInstaller" 2>/dev/null; then
-    echo "Installing PyInstaller..."
-    pip install --user pyinstaller
-fi
+echo "==> Activating virtual environment..."
+source "$VENV/bin/activate"
 
-python3 -m PyInstaller \
+echo "==> Updating pip..."
+python -m pip install --upgrade pip wheel
+
+echo "==> Installing build dependencies..."
+python -m pip install --upgrade pyinstaller
+
+echo "==> Building..."
+pyinstaller \
+    --clean \
+    --noconfirm \
     --onefile \
     --windowed \
-    --name steam-haptics-ui \
-    steam_haptics_ui.py
+    --name "$APP_NAME" \
+    "$ENTRYPOINT"
 
-echo ""
-echo "Done. Binary is at: dist/steam-haptics-ui"
+if command -v strip >/dev/null; then
+    echo "==> Stripping symbols..."
+    strip "dist/$APP_NAME" || true
+fi
+
+if command -v upx >/dev/null; then
+    echo "==> Compressing binary with UPX..."
+    upx --best --lzma "dist/$APP_NAME" || true
+fi
+
+echo
+echo "Build complete!"
+echo "Binary: dist/$APP_NAME"

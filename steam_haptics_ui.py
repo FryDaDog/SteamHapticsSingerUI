@@ -1,38 +1,78 @@
 #!/usr/bin/env python3
 # steam_haptics_ui.py
 #
-# Little GUI wrapper around the steam-haptics-singer CLI so you don't
-# have to remember all the flags every time. Point it at the binary
-# and a MIDI file, flip the settings you want, hit play.
+# GUI wrapper around the steam-haptics-singer CLI. Auto-detects the
+# binary in the current folder, keeps a favorites list of MIDI files
+# (TegraRcmGUI-style), and warns you if you tweak a setting while a
+# song is already playing, since the running process won't pick up
+# the change until it's restarted.
 #
-# Stop actually sends SIGINT to the process group - same thing that
-# happens when you hit Ctrl+C in a terminal - instead of just killing
-# it, since the tool probably wants to clean up the USB handle on the
-# way out.
-#
-# Linux only. Needs tkinter (usually `sudo apt install python3-tk` if
-# it's not already there).
+# Linux only. Needs tkinter (on Arch: `sudo pacman -S tk`).
 
+import glob
+import json
 import os
+import re
 import signal
 import subprocess
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+CONFIG_DIR = os.path.expanduser("~/.config/steam-haptics-ui")
+FAVORITES_FILE = os.path.join(CONFIG_DIR, "favorites.json")
+
+BINARY_PATTERN = re.compile(r"^steam-haptics-singer-v(\d+)$")
+
+
+def find_latest_binary():
+    """Look in the current dir for steam-haptics-singer-vXXXX and return
+    the one with the highest version number, or None if nothing matches."""
+    best_path = None
+    best_version = -1
+    for path in glob.glob("./steam-haptics-singer-v*"):
+        name = os.path.basename(path)
+        match = BINARY_PATTERN.match(name)
+        if not match:
+            continue
+        version = int(match.group(1))
+        if version > best_version:
+            best_version = version
+            best_path = path
+    return best_path
+
+
+def load_favorites():
+    try:
+        with open(FAVORITES_FILE, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def save_favorites(favorites):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    with open(FAVORITES_FILE, "w") as f:
+        json.dump(favorites, f, indent=2)
+
 
 class SteamHapticsUI(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Steam Haptics Singer")
-        self.geometry("620x560")
-        self.minsize(560, 480)
+        self.geometry("640x680")
+        self.minsize(580, 560)
 
         self.process = None
         self.reader_thread = None
+        self.restart_requested = False
+        self.settings_dirty = False  # changed since last (re)start
 
-        # everything the settings panel controls
-        self.binary_path = tk.StringVar(value="./steam-haptics-singer-v1113")
+        self.favorites = load_favorites()
+
+        # settings panel state
+        detected = find_latest_binary()
+        self.binary_path = tk.StringVar(value=detected or "./steam-haptics-singer-v1113")
         self.midi_path = tk.StringVar(value="")
         self.interval = tk.StringVar(value="10000")
         self.debug_level = tk.IntVar(value=0)
@@ -44,12 +84,18 @@ class SteamHapticsUI(tk.Tk):
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
+        if detected is None:
+            self._log("[no steam-haptics-singer-vXXXX binary found in this folder - "
+                       "set the path manually]\n")
+        else:
+            self._log(f"[auto-detected binary: {detected}]\n")
+
     # ------------------------------------------------------------------ UI
 
     def _build_ui(self):
         pad = {"padx": 10, "pady": 6}
 
-        # binary + midi pickers up top
+        # --- binary + midi path ---
         file_frame = ttk.LabelFrame(self, text="Files")
         file_frame.pack(fill="x", **pad)
 
@@ -58,7 +104,10 @@ class SteamHapticsUI(tk.Tk):
             row=0, column=1, sticky="ew", padx=6, pady=4
         )
         ttk.Button(file_frame, text="Browse...", command=self._pick_binary).grid(
-            row=0, column=2, padx=6, pady=4
+            row=0, column=2, padx=3, pady=4
+        )
+        ttk.Button(file_frame, text="Re-scan", command=self._rescan_binary).grid(
+            row=0, column=3, padx=(0, 6), pady=4
         )
 
         ttk.Label(file_frame, text="MIDI file:").grid(row=1, column=0, sticky="w", padx=6, pady=4)
@@ -66,11 +115,27 @@ class SteamHapticsUI(tk.Tk):
             row=1, column=1, sticky="ew", padx=6, pady=4
         )
         ttk.Button(file_frame, text="Browse...", command=self._pick_midi).grid(
-            row=1, column=2, padx=6, pady=4
+            row=1, column=2, columnspan=2, padx=(3, 6), pady=4, sticky="ew"
         )
         file_frame.columnconfigure(1, weight=1)
 
-        # the actual settings menu - maps straight onto the CLI flags
+        # --- favorites list, TegraRcmGUI style ---
+        fav_frame = ttk.LabelFrame(self, text="Favorites")
+        fav_frame.pack(fill="x", **pad)
+
+        self.fav_listbox = tk.Listbox(fav_frame, height=5, exportselection=False)
+        self.fav_listbox.grid(row=0, column=0, rowspan=2, sticky="nsew", padx=(6, 3), pady=6)
+        self.fav_listbox.bind("<<ListboxSelect>>", self._on_favorite_selected)
+        fav_frame.columnconfigure(0, weight=1)
+
+        btn_col = ttk.Frame(fav_frame)
+        btn_col.grid(row=0, column=1, rowspan=2, sticky="n", padx=(0, 6), pady=6)
+        ttk.Button(btn_col, text="＋", width=3, command=self._add_favorite).pack(pady=(0, 4))
+        ttk.Button(btn_col, text="🗑", width=3, command=self._remove_favorite).pack()
+
+        self._refresh_favorites_list()
+
+        # --- settings menu ---
         settings_frame = ttk.LabelFrame(self, text="Settings")
         settings_frame.pack(fill="x", **pad)
 
@@ -115,7 +180,28 @@ class SteamHapticsUI(tk.Tk):
             variable=self.opt_swap_channels,
         ).grid(row=5, column=0, columnspan=3, sticky="w", padx=6, pady=2)
 
-        # play / stop
+        # fires the "restart to apply" warning whenever any of these change
+        for var in (
+            self.binary_path,
+            self.midi_path,
+            self.interval,
+            self.debug_level,
+            self.opt_repeat,
+            self.opt_gain_from_midi,
+            self.opt_two_channel,
+            self.opt_swap_channels,
+        ):
+            var.trace_add("write", self._on_setting_changed)
+
+        # --- warning banner, hidden unless something changed mid-playback ---
+        self.warning_label = ttk.Label(
+            self,
+            text="⚠ Settings changed - restart playback for this to take effect",
+            foreground="#b35c00",
+        )
+        # not packed yet; _show_warning() packs it when needed
+
+        # --- play / stop / restart ---
         control_frame = ttk.Frame(self)
         control_frame.pack(fill="x", **pad)
 
@@ -127,43 +213,46 @@ class SteamHapticsUI(tk.Tk):
         )
         self.stop_btn.pack(side="left", padx=6)
 
+        self.restart_btn = ttk.Button(
+            control_frame, text="⟳ Restart Playback", command=self._on_restart, state="disabled"
+        )
+        self.restart_btn.pack(side="left", padx=6)
+
         self.status_label = ttk.Label(control_frame, text="Idle")
         self.status_label.pack(side="left", padx=12)
 
-        # show the command we're about to run, mostly so you can double check it
+        # --- command preview ---
         preview_frame = ttk.LabelFrame(self, text="Command")
         preview_frame.pack(fill="x", **pad)
         self.cmd_preview = tk.StringVar(value="")
         ttk.Label(
-            preview_frame, textvariable=self.cmd_preview, foreground="gray", wraplength=580
+            preview_frame, textvariable=self.cmd_preview, foreground="gray", wraplength=600
         ).pack(fill="x", padx=6, pady=6)
-
-        for var in (
-            self.binary_path,
-            self.midi_path,
-            self.interval,
-            self.debug_level,
-            self.opt_repeat,
-            self.opt_gain_from_midi,
-            self.opt_two_channel,
-            self.opt_swap_channels,
-        ):
-            var.trace_add("write", lambda *_: self._update_preview())
         self._update_preview()
 
-        # raw stdout/stderr from the tool
+        # --- output log ---
         log_frame = ttk.LabelFrame(self, text="Output")
         log_frame.pack(fill="both", expand=True, **pad)
 
-        self.log_text = tk.Text(log_frame, height=12, state="disabled", wrap="word")
+        self.log_text = tk.Text(log_frame, height=10, state="disabled", wrap="word")
         self.log_text.pack(fill="both", expand=True, padx=6, pady=6)
 
-    # --------------------------------------------------------------- logic
+    # --------------------------------------------------------- binary/midi
 
     def _pick_binary(self):
         path = filedialog.askopenfilename(title="Select steam-haptics-singer binary")
         if path:
             self.binary_path.set(path)
+
+    def _rescan_binary(self):
+        detected = find_latest_binary()
+        if detected:
+            self.binary_path.set(detected)
+            self._log(f"[re-scanned, using: {detected}]\n")
+        else:
+            messagebox.showinfo(
+                "Not found", "No steam-haptics-singer-vXXXX binary found in this folder."
+            )
 
     def _pick_midi(self):
         path = filedialog.askopenfilename(
@@ -172,8 +261,43 @@ class SteamHapticsUI(tk.Tk):
         if path:
             self.midi_path.set(path)
 
+    # ------------------------------------------------------------ favorites
+
+    def _refresh_favorites_list(self):
+        self.fav_listbox.delete(0, "end")
+        for fav in self.favorites:
+            self.fav_listbox.insert("end", fav["name"])
+
+    def _on_favorite_selected(self, _event):
+        selection = self.fav_listbox.curselection()
+        if not selection:
+            return
+        fav = self.favorites[selection[0]]
+        self.midi_path.set(fav["path"])
+
+    def _add_favorite(self):
+        path = self.midi_path.get().strip()
+        if not path:
+            messagebox.showwarning("No MIDI file", "Pick a MIDI file first, then add it.")
+            return
+        if any(fav["path"] == path for fav in self.favorites):
+            messagebox.showinfo("Already added", "That MIDI file is already in your favorites.")
+            return
+        self.favorites.append({"name": os.path.basename(path), "path": path})
+        save_favorites(self.favorites)
+        self._refresh_favorites_list()
+
+    def _remove_favorite(self):
+        selection = self.fav_listbox.curselection()
+        if not selection:
+            return
+        del self.favorites[selection[0]]
+        save_favorites(self.favorites)
+        self._refresh_favorites_list()
+
+    # --------------------------------------------------------------- logic
+
     def _build_args(self):
-        # turns the current settings into the actual argv list
         args = [self.binary_path.get()]
 
         interval = self.interval.get().strip()
@@ -201,6 +325,26 @@ class SteamHapticsUI(tk.Tk):
         args = self._build_args()
         self.cmd_preview.set(" ".join(a if a else '""' for a in args))
 
+    def _on_setting_changed(self, *_args):
+        self._update_preview()
+        if self.process is not None:
+            self._show_warning()
+
+    def _show_warning(self):
+        if not self.warning_label.winfo_ismapped():
+            self.warning_label.pack(fill="x", padx=10, pady=(0, 4), before=self._first_control_frame())
+
+    def _first_control_frame(self):
+        # the play/stop/restart row is what the warning should sit just above
+        for child in self.winfo_children():
+            if isinstance(child, ttk.Frame):
+                return child
+        return None
+
+    def _hide_warning(self):
+        if self.warning_label.winfo_ismapped():
+            self.warning_label.pack_forget()
+
     def _log(self, text):
         self.log_text.configure(state="normal")
         self.log_text.insert("end", text)
@@ -219,16 +363,13 @@ class SteamHapticsUI(tk.Tk):
         args = self._build_args()
 
         try:
-            # start_new_session puts the child in its own process group,
-            # so Stop can signal just this process (and anything it spawns)
-            # without touching the GUI itself
             self.process = subprocess.Popen(
                 args,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
-                start_new_session=True,
+                start_new_session=True,  # own process group, so Stop can signal cleanly
             )
         except FileNotFoundError:
             messagebox.showerror(
@@ -241,16 +382,17 @@ class SteamHapticsUI(tk.Tk):
             self.process = None
             return
 
+        self._hide_warning()
         self._log(f"\n$ {' '.join(args)}\n")
         self.status_label.config(text="Playing...")
         self.play_btn.config(state="disabled")
         self.stop_btn.config(state="normal")
+        self.restart_btn.config(state="normal")
 
         self.reader_thread = threading.Thread(target=self._read_output, daemon=True)
         self.reader_thread.start()
 
     def _read_output(self):
-        # runs in a background thread, just pipes stdout into the log box
         proc = self.process
         if proc is None or proc.stdout is None:
             return
@@ -269,20 +411,23 @@ class SteamHapticsUI(tk.Tk):
         self.status_label.config(text="Idle")
         self.play_btn.config(state="normal")
         self.stop_btn.config(state="disabled")
+        self.restart_btn.config(state="disabled")
+
+        if self.restart_requested:
+            self.restart_requested = False
+            self._on_play()
 
     def _on_stop(self):
         if self.process is None:
             return
         self.status_label.config(text="Stopping (Ctrl+C sent)...")
         try:
-            # SIGINT to the whole group - this is exactly what you'd get
-            # from Ctrl+C in a terminal, so the tool can shut down cleanly
+            # SIGINT to the whole group - exactly what Ctrl+C in a terminal does
             os.killpg(os.getpgid(self.process.pid), signal.SIGINT)
         except Exception as e:
             self._log(f"\n[error sending Ctrl+C: {e}]\n")
             return
 
-        # give it a few seconds to exit on its own before offering to force it
         self.after(3000, self._check_stopped)
 
     def _check_stopped(self):
@@ -296,8 +441,16 @@ class SteamHapticsUI(tk.Tk):
                 except Exception as e:
                     self._log(f"\n[error force-killing: {e}]\n")
 
+    def _on_restart(self):
+        if self.process is None:
+            return
+        self.restart_requested = True
+        self.status_label.config(text="Restarting...")
+        self._on_stop()
+
     def _on_close(self):
         if self.process is not None and self.process.poll() is None:
+            self.restart_requested = False
             self._on_stop()
         self.destroy()
 
