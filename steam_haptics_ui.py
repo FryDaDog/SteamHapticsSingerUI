@@ -3,11 +3,11 @@
 #
 # GUI wrapper around the steam-haptics-singer CLI. Auto-detects the
 # binary in the current folder, keeps a favorites list of MIDI files
-# (TegraRcmGUI-style), and warns you if you tweak a setting while a
-# song is already playing, since the running process won't pick up
-# the change until it's restarted.
+# (def not inspired by TegraRcmGUI), and warns you if you tweak a
+# setting while a song is already playing, since the running process
+# won't pick up the change until it's restarted.
 #
-# Linux only. Needs tkinter (on Arch: `sudo pacman -S tk`).
+# currently linux only. needs tkinter (on Arch: `sudo pacman -S tk`, on Debian/Ubuntu: `sudo apt install python3-tk`).
 
 import glob
 import json
@@ -26,8 +26,7 @@ BINARY_PATTERN = re.compile(r"^steam-haptics-singer-v(\d+)$")
 
 
 def find_latest_binary():
-    """Look in the current dir for steam-haptics-singer-vXXXX and return
-    the one with the highest version number, or None if nothing matches."""
+    """finds latest vesion of steam haptics singer binary"""
     best_path = None
     best_version = -1
     for path in glob.glob("./steam-haptics-singer-v*"):
@@ -78,9 +77,8 @@ class SteamHapticsUI(tk.Tk):
         self.debug_level = tk.IntVar(value=0)
         self.opt_repeat = tk.BooleanVar(value=False)          # -p
         self.opt_gain_from_midi = tk.BooleanVar(value=False)  # -e
-        self.opt_two_channel = tk.BooleanVar(value=False)     # -t, 2026 controller only
-        self.opt_swap_channels = tk.BooleanVar(value=False)   # -s, 2026 controller only
-
+        self.opt_two_channel = tk.BooleanVar(value=False)     # -t, SC2026 only
+        self.opt_swap_channels = tk.BooleanVar(value=False)   # -s, SC2026 only
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -90,12 +88,12 @@ class SteamHapticsUI(tk.Tk):
         else:
             self._log(f"[auto-detected binary: {detected}]\n")
 
-    # ------------------------------------------------------------------ UI
+    # ------------------------------------------------------------------ UI (the boring (or interesting) stuff)
 
     def _build_ui(self):
         pad = {"padx": 10, "pady": 6}
 
-        # --- binary + midi path ---
+        #  binary + midi path
         file_frame = ttk.LabelFrame(self, text="Files")
         file_frame.pack(fill="x", **pad)
 
@@ -119,7 +117,7 @@ class SteamHapticsUI(tk.Tk):
         )
         file_frame.columnconfigure(1, weight=1)
 
-        # --- favorites list, TegraRcmGUI style ---
+        #  favorites list
         fav_frame = ttk.LabelFrame(self, text="Favorites")
         fav_frame.pack(fill="x", **pad)
 
@@ -135,7 +133,7 @@ class SteamHapticsUI(tk.Tk):
 
         self._refresh_favorites_list()
 
-        # --- settings menu ---
+        #  settings menu
         settings_frame = ttk.LabelFrame(self, text="Settings")
         settings_frame.pack(fill="x", **pad)
 
@@ -147,7 +145,7 @@ class SteamHapticsUI(tk.Tk):
         )
         ttk.Label(
             settings_frame,
-            text="Lower = better fidelity, more CPU. 10000 is the default.",
+            text="Lower = better fidelity, more CPU",
             foreground="gray",
         ).grid(row=0, column=2, sticky="w", padx=6, pady=6)
 
@@ -159,24 +157,24 @@ class SteamHapticsUI(tk.Tk):
         ).grid(row=1, column=1, sticky="w", padx=6, pady=6)
 
         ttk.Checkbutton(
-            settings_frame, text="Repeat song (-p)", variable=self.opt_repeat
+            settings_frame, text="Loop song", variable=self.opt_repeat
         ).grid(row=2, column=0, columnspan=2, sticky="w", padx=6, pady=2)
 
         ttk.Checkbutton(
             settings_frame,
-            text="MIDI velocity controls gain (-e)",
+            text="MIDI velocity controls gain",
             variable=self.opt_gain_from_midi,
         ).grid(row=3, column=0, columnspan=3, sticky="w", padx=6, pady=2)
 
         ttk.Checkbutton(
             settings_frame,
-            text="Limit to two channels (-t, Steam Controller 2026 only)",
+            text="Limit to two channels (Steam Controller 2026 only)",
             variable=self.opt_two_channel,
         ).grid(row=4, column=0, columnspan=3, sticky="w", padx=6, pady=2)
 
         ttk.Checkbutton(
             settings_frame,
-            text="Swap rumble/trackpad channels (-s, Steam Controller 2026 only)",
+            text="Swap rumble/trackpad channels (Steam Controller 2026 only)",
             variable=self.opt_swap_channels,
         ).grid(row=5, column=0, columnspan=3, sticky="w", padx=6, pady=2)
 
@@ -193,15 +191,15 @@ class SteamHapticsUI(tk.Tk):
         ):
             var.trace_add("write", self._on_setting_changed)
 
-        # --- warning banner, hidden unless something changed mid-playback ---
+        #  warning banner (hidden by default)
         self.warning_label = ttk.Label(
             self,
             text="⚠ Settings changed - restart playback for this to take effect",
             foreground="#b35c00",
         )
-        # not packed yet; _show_warning() packs it when needed
+        # _show_warning() packs it when needed
 
-        # --- play / stop / restart ---
+        #  play / stop / restart
         control_frame = ttk.Frame(self)
         control_frame.pack(fill="x", **pad)
 
@@ -209,7 +207,7 @@ class SteamHapticsUI(tk.Tk):
         self.play_btn.pack(side="left", padx=6)
 
         self.stop_btn = ttk.Button(
-            control_frame, text="■ Stop (Ctrl+C)", command=self._on_stop, state="disabled"
+            control_frame, text="■ Stop", command=self._on_stop, state="disabled"
         )
         self.stop_btn.pack(side="left", padx=6)
 
@@ -221,7 +219,7 @@ class SteamHapticsUI(tk.Tk):
         self.status_label = ttk.Label(control_frame, text="Idle")
         self.status_label.pack(side="left", padx=12)
 
-        # --- command preview ---
+        # command preview
         preview_frame = ttk.LabelFrame(self, text="Command")
         preview_frame.pack(fill="x", **pad)
         self.cmd_preview = tk.StringVar(value="")
@@ -230,7 +228,7 @@ class SteamHapticsUI(tk.Tk):
         ).pack(fill="x", padx=6, pady=6)
         self._update_preview()
 
-        # --- output log ---
+        #  output log
         log_frame = ttk.LabelFrame(self, text="Output")
         log_frame.pack(fill="both", expand=True, **pad)
 
@@ -295,7 +293,7 @@ class SteamHapticsUI(tk.Tk):
         save_favorites(self.favorites)
         self._refresh_favorites_list()
 
-    # --------------------------------------------------------------- logic
+    # --------------------------------------------------------------- logic (something i don't have)
 
     def _build_args(self):
         args = [self.binary_path.get()]
@@ -422,7 +420,7 @@ class SteamHapticsUI(tk.Tk):
             return
         self.status_label.config(text="Stopping (Ctrl+C sent)...")
         try:
-            # SIGINT to the whole group - exactly what Ctrl+C in a terminal does
+            # SIGINT to group (Ctrl + C but with extra steps)
             os.killpg(os.getpgid(self.process.pid), signal.SIGINT)
         except Exception as e:
             self._log(f"\n[error sending Ctrl+C: {e}]\n")
@@ -432,14 +430,7 @@ class SteamHapticsUI(tk.Tk):
 
     def _check_stopped(self):
         if self.process is not None and self.process.poll() is None:
-            if messagebox.askyesno(
-                "Still running",
-                "The process didn't exit after Ctrl+C. Force kill it?",
-            ):
-                try:
-                    os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
-                except Exception as e:
-                    self._log(f"\n[error force-killing: {e}]\n")
+            return
 
     def _on_restart(self):
         if self.process is None:

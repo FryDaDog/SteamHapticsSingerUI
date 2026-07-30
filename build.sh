@@ -7,6 +7,14 @@
 
 set -euo pipefail
 
+if ! python -c "import tkinter" 2>/dev/null; then
+    echo "tkinter isn't installed. On Debian/Ubuntu:"
+    echo "  sudo apt install python3-tk"
+    echo "On Arch:"
+    echo "  sudo pacman -S tk"
+    exit 1
+fi
+
 APP_NAME="steam-haptics-ui"
 ENTRYPOINT="steam_haptics_ui.py"
 VENV=".venv"
