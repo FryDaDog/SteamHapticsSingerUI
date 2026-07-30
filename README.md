@@ -65,7 +65,12 @@ sudo apt install python3-tk
 ```bash
 sh build.sh
 ```
+## Planning to add
 
+- Windows suport
+- Installation script
+- Autoupdates
+  
 ## License
 
 MIT License
