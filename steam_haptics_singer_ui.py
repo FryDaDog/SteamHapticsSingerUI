@@ -34,23 +34,18 @@ else:
 FAVORITES_FILE = os.path.join(CONFIG_DIR, "favorites.json")
  
 # checks if windows or linux for .exe or binary
-BINARY_PATTERN = re.compile(r"^steam-haptics-singer-v(\d+)(\.exe)?$", re.IGNORECASE)
- 
- 
 def find_latest_binary():
-    """finds latest vesion of steam haptics singer binary"""
-    best_path = None
-    best_version = -1
-    for path in glob.glob("./steam-haptics-singer-v*"):
-        name = os.path.basename(path)
-        match = BINARY_PATTERN.match(name)
-        if not match:
+    candidates = []
+    for path in glob.glob("./steam-haptics-singer*"):
+        if not os.path.isfile(path):
             continue
-        version = int(match.group(1))
-        if version > best_version:
-            best_version = version
-            best_path = path
-    return best_path
+        name = os.path.basename(path).lower()
+        if not name.startswith("steam-haptics-singer"):
+            continue
+        candidates.append(path)
+    if not candidates:
+        return None
+    return max(candidates, key=os.path.getmtime)
  
  
 def load_favorites():
@@ -108,10 +103,9 @@ class SteamHapticsUI(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
  
         if detected is None:
-            self._log("[no steam-haptics-singer-vXXXX binary found in this folder - "
-                       "set the path manually]\n")
+            self._log("[no steam-haptics-singer binary found in this folder - set the path manually]\n")
         else:
-            self._log(f"[auto-detected binary: {detected}]\n")
+            self._log(f"[auto-detected binary: {os.path.basename(detected)}]\n")
  
     # ------------------------------------------------------------------ UI (the boring (or interesting) stuff)
  
@@ -274,7 +268,7 @@ class SteamHapticsUI(tk.Tk):
             self._log(f"[re-scanned, using: {detected}]\n")
         else:
             messagebox.showinfo(
-                "Not found", "No steam-haptics-singer-vXXXX binary found in this folder."
+                "Not found", "No steam-haptics-singer binary found in this folder."
             )
  
     def _pick_midi(self):
@@ -385,10 +379,10 @@ class SteamHapticsUI(tk.Tk):
  
         args = self._build_args()
  
-        # we give the session a parrent so we can politely kill it later
+        # we give the session a parent so we can politely kill it later
         popen_kwargs = {}
         if IS_WINDOWS:
-            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         else:
             popen_kwargs["start_new_session"] = True
  
@@ -450,20 +444,18 @@ class SteamHapticsUI(tk.Tk):
     def _on_stop(self):
         if self.process is None:
             return
-        self.status_label.config(text="Stopping (Ctrl+C sent)...")
+        self.status_label.config(text="Stopping...")
         try:
             if IS_WINDOWS:
-                # CTRL_BREAK_EVENT (Ctrl + C but with extra steps but windows)
-                self.process.send_signal(signal.CTRL_BREAK_EVENT)
+                # forcing to kill the process.
+                self.process.terminate()
             else:
-                # SIGINT to group (Ctrl + C but with extra steps)
                 os.killpg(os.getpgid(self.process.pid), signal.SIGINT)
         except Exception as e:
-            self._log(f"\n[error sending Ctrl+C: {e}]\n")
+            self._log(f"\n[error stopping process: {e}]\n")
             return
- 
-        self.after(3000, self._check_stopped)
- 
+        self.after(200, self._check_stopped)
+
     def _check_stopped(self):
         if self.process is not None and self.process.poll() is None:
             return

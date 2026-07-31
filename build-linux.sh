@@ -2,8 +2,8 @@
 #
 # build.sh
 #
-# Builds steam_haptics_ui.py into a standalone binary.
-# Uses a local Python virtual environment.
+# builds steam_haptics_singer_ui.py into a standalone binary
+# uses a local Python virtual environment
 
 set -euo pipefail
 
@@ -15,8 +15,8 @@ if ! python -c "import tkinter" 2>/dev/null; then
     exit 1
 fi
 
-APP_NAME="steam-haptics-ui"
-ENTRYPOINT="steam_haptics_ui.py"
+APP_NAME="steam-haptics-singer-ui"
+ENTRYPOINT="steam_haptics_singer_ui.py"
 VENV=".venv"
 
 echo "==> Cleaning previous builds..."

@@ -6,7 +6,13 @@
 
 A simple graphical user interface for **Steam Haptics Singer** by **CrazyCritic89**.
 
-> **Linux only** for now. A Windows version is planned.
+<p align="center">
+  <img src="docs/screenshot.png" alt="Steam Haptics Singer UI Screenshot" width="450">
+</p>
+
+> This project is not affiliated with or endorsed by **CrazyCritic89** or the **Steam Haptics Singer** project.
+
+Available for both Windows and Linux.
 
 ## Features
 
@@ -18,24 +24,39 @@ A simple graphical user interface for **Steam Haptics Singer** by **CrazyCritic8
 
 ## Usage
 
-1. Download the latest release.
-2. Copy the `steam-haptics-ui` binary into the same folder as Steam Haptics Singer.
-3. Open a terminal in that folder.
-4. Make the binary executable:
+### Linux
+
+1. Download the latest Linux release bundled with Steam Haptics Singer.
+
+2. Extract the contents of the folder.
+
+3. Make steam-haptics-singer-ui executable
 
 ```bash
-chmod +x steam-haptics-ui
+chmod +x steam-haptics-singer-ui
 ```
 
-5. Run the application:
+4. Run the application:
 
 ```bash
-./steam-haptics-ui
+./steam-haptics-singer-ui
 ```
+
+### Windows
+
+1. Download the latest Windows release bundled with Steam Haptics Singer.
+
+2. Extract the contents of the folder.
+
+3. Run steam-haptics-singer-ui.exe
+
+> Warning: If Windows shows you a warning saying "Windows protected your PC", click **More info** and then **Run anyway**.
+> This is not malware, I just don't want to pay Microsoft 200€ a year.
 
 ## Building from Source
 
 > This is only necessary if you want to build the application yourself.
+> Do note that you will need to download Steam Haptics Singer yourself.
 
 ### 1. Clone the repository
 
@@ -44,9 +65,15 @@ git clone https://github.com/FryDaDog/SteamHapticsSingerUI.git
 cd SteamHapticsSingerUI
 ```
 
+### 2. Install Python
+
+Download and install Python 3.10 or newer.
+
+- **Linux:** Install it using your package manager.
+- **Windows:** Download it from https://www.python.org/downloads/ and make sure to check **"Add Python to PATH"** during installation.
 
 
-### 2. Install Tkinter
+### 3. Install Tkinter
 
 **Arch Linux**
 
@@ -60,17 +87,33 @@ sudo pacman -S tk
 sudo apt install python3-tk
 ```
 
-### 3. Build
+**Windows**
+
+Python's official Windows installer includes Tkinter.
+
+
+### 4. Build
+
+On Linux:
 
 ```bash
-sh build.sh
+sh build-linux.sh
 ```
+
+On Windows:
+
+```bash
+.\build-windows.bat
+```
+
 ## Planning to add
 
-- Windows suport
 - Installation script
 - Autoupdates
+- Online MIDI downloader
   
 ## License
 
-MIT License
+SteamHapticsSingerUI is licensed under the MIT License.
+
+Steam Haptics Singer is licensed under the BSD 3-Clause License.
